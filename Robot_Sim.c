@@ -21,6 +21,7 @@ fdserial *xbee;
 #define SETS       5                          // The amount of move/turn sets that will be executed
 #define SIMULATION_RUN 5                      //The amount of times that scan/move data will be returned(1 run= 1 scan, 1 move)
 #define NUMBER_SCAN_TURNS 1                   //36 turns = 1 complete scan
+#define STATE_INIT 
  
 
 int go_and_track_time(int stopDistance);      //Makes the robot move until it arrives near a wall/object and returns run time
@@ -31,10 +32,78 @@ int* robot_scan();                                  //Makes robot take 360-degre
 
 
 
+int iState;
+enum state{INIT, WAIT_CMD, RUN_CMD, SEND_DATA};
+
+int goto_next(int next_state)
+{
+   iState = next_state;
+   return 0;
+}
+
+int get_step(void)
+{
+  return iState;
+}
+
 int main()                                    // Main function
+{
+  goto_next(INIT);
+  
+  while(1)
+  {
+    switch(get_step())
+    {
+      case INIT:
+        initialize();
+        goto_next(WAIT_CMD);
+        break;
+        
+      case WAIT_CMD:
+        
+        goto_next(RUN_CMD);
+        break;
+        
+      case RUN_CMD:
+        run_cmd(); 
+        goto_next(SEND_DATA);
+        break;
+        
+      case SEND_DATA:
+        
+        goto_next(WAIT_CMD);
+        break;
+    }
+  }
+  
+}
+
+char debug_stop(fdserial *serial, char *str)
+{
+  char c;
+  
+  dprint(serial, str);
+  
+  while(1)
+  {
+    c = fdserial_rxChar(serial);
+    if(c != -1)
+    {
+      return c;
+    }
+  }    
+  
+}
+
+int initialize(void)
 {
   xbee = fdserial_open(9, 8, 0, 9600);
   
+}
+
+int run_cmd(void)
+{
+ 
   //int *scanData;
   int *moveData;
   //int degrees[] ={0  ,10 ,20 ,30 ,40 ,50 ,60 ,70 ,80 ,90 ,100,110,120,130,140,150,160,170,
@@ -42,7 +111,7 @@ int main()                                    // Main function
   int i;
  
   dprint(xbee,"2==Start\n");
-  
+  /*
   dprint(xbee, "1,scan");
   for(i=0; i<36; i++)
   {
@@ -56,7 +125,7 @@ int main()                                    // Main function
   }
   dprint(xbee, "\n\n");
   
-  
+  */
 
   moveData = move_to_new_location(SETS);        //Robot will turn & move/store data 5 times : turn, move, turn, move, ...
 
@@ -69,8 +138,11 @@ int main()                                    // Main function
   {
     dprint(xbee,",%d", moveData[i]);
   }
-   dprint(xbee, "\n\n");
- 
+  dprint(xbee, "\n\n");
+   
+  debug_stop(xbee, "debug1===\n");
+   
+  
 }
 
 int go_and_track_time(int stopDistance)       //stopDistance = distance between a detected wall and robot when stopped
