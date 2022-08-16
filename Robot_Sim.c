@@ -42,7 +42,7 @@ int main()                                    // Main function
   int i;
  
   dprint(xbee,"2==Start\n");
-  /*
+  
   dprint(xbee, "1,scan");
   for(i=0; i<36; i++)
   {
@@ -56,7 +56,7 @@ int main()                                    // Main function
   }
   dprint(xbee, "\n\n");
   
-  */
+  
 
   moveData = move_to_new_location(SETS);        //Robot will turn & move/store data 5 times : turn, move, turn, move, ...
 
