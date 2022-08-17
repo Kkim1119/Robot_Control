@@ -18,10 +18,9 @@
 fdserial *xbee;
 
 #define SPEED_STEP 10                         // 10 ticks/sec / 20 ms
-#define SETS       5                          // The amount of move/turn sets that will be executed
+#define SETS       1                          // The amount of move/turn sets that will be executed
 #define SIMULATION_RUN 5                      //The amount of times that scan/move data will be returned(1 run= 1 scan, 1 move)
-#define NUMBER_SCAN_TURNS 1                   //36 turns = 1 complete scan
-#define STATE_INIT 
+#define NUMBER_SCAN_TURNS 1                   //36 turns = 1 complete scan 
  
 
 int go_and_track_time(int stopDistance);      //Makes the robot move until it arrives near a wall/object and returns run time
@@ -31,9 +30,11 @@ int* move_to_new_location(int maxSets);       //Makes the robot move to random l
 int* robot_scan();                                  //Makes robot take 360-degree scan at current location. Returns data(turn, ping)
 
 
-
+int stateValue;
 int iState;
-enum state{INIT, WAIT_CMD, RUN_CMD, SEND_DATA};
+enum state{INIT, WAIT_CMD, MOVE_CMD, SCAN_CMD, SCAN_MOVE_CMD, SEND_DATA};
+
+//functions used by state machine ---------------------------
 
 int goto_next(int next_state)
 {
@@ -46,37 +47,48 @@ int get_step(void)
   return iState;
 }
 
-int main()                                    // Main function
+// Main function --------------------------------------------
+
+int main()                                    
 {
+  int i;
+  
+  xbee = fdserial_open(9, 8, 0, 9600);
+    
   goto_next(INIT);
   
   while(1)
-  {
+  {    
     switch(get_step())
     {
       case INIT:
         initialize();
         goto_next(WAIT_CMD);
         break;
-        
+
       case WAIT_CMD:
-        
-        goto_next(RUN_CMD);
+        i = wait_cmd();
+        dprint(xbee, "i:%x\n", i);
+        goto_next(i);
         break;
         
-      case RUN_CMD:
-        run_cmd(); 
-        goto_next(SEND_DATA);
+      case MOVE_CMD:
+        move_cmd(); 
+        //goto_next(SEND_DATA);
+        goto_next(WAIT_CMD);
         break;
         
       case SEND_DATA:
-        
+        send_data();
         goto_next(WAIT_CMD);
         break;
+
     }
   }
   
 }
+
+//functions that represent the states of the robot(+debugging tool)
 
 char debug_stop(fdserial *serial, char *str)
 {
@@ -95,44 +107,104 @@ char debug_stop(fdserial *serial, char *str)
   
 }
 
+char ask_user_order(fdserial *serial, char *str) //Does same thing as debugging tool, but prompts user to press enter key.
+{
+  char c;
+  
+  dprint(serial, str);
+  
+  while(1)
+  {
+    c = fdserial_rxChar(serial);
+    if(c == 0xd)
+    {
+      return c;
+    }
+  }      
+}
+
 int initialize(void)
 {
-  xbee = fdserial_open(9, 8, 0, 9600);
+
+  dprint(xbee, "Robot is done booting\n");
+  //dprint(xbee, "Robot is done booting. Would you like to start the process?(Press enter to continue)\n");
+}
+
+
+int wait_cmd(void)
+{
+  char c;
+  int iCmd;
+  char const default_val = 0;
+  char byte_1 = default_val, byte_2 = default_val, byte_3 = default_val;
+  
+  dprint(xbee, "wait_cmd\n");
+  
+  while(1)
+  {
+    c = fdserial_rxChar(xbee);
+    if(c != -1)
+    {
+      if(c == 0x30)
+      {
+        
+        dprint(xbee, "run command: %x \n", byte_2);
+        
+        switch(byte_2)
+        {
+          case 0x32:
+            iCmd = MOVE_CMD;
+            break;
+          case 0x33:
+            iCmd = SCAN_CMD;
+            break;
+          case 0x34:
+            iCmd = SCAN_MOVE_CMD;
+            break;
+        }
+        
+        byte_3 = default_val;
+        byte_2 = default_val;
+        byte_1 = default_val;
+
+        return (iCmd);
+      }
+      else
+      {
+        if(byte_3 == default_val)
+        {
+          byte_3 = c;
+        }
+        else if(byte_2 == default_val)
+        {
+          byte_2 = c;
+        }
+        else  // digit_1 == 10
+        {
+          byte_1 = c;
+        }        
+      }    
+    }
+  } 
+
+}
+
+
+int move_cmd(void)
+{
+  int *moveData;
+
+  dprint(xbee, "move_cmd\n");
+  
+  moveData = move_to_new_location(SETS);        //Robot will turn & move/store data 5 times : turn, move, turn, move, ...
   
 }
 
-int run_cmd(void)
+int send_data(void)
 {
- 
-  //int *scanData;
-  int *moveData;
-  //int degrees[] ={0  ,10 ,20 ,30 ,40 ,50 ,60 ,70 ,80 ,90 ,100,110,120,130,140,150,160,170,
-  //               180,190,200,210,220,230,240,250,260,270,280,290,300,310,320,330,340,350,360};
-  int i;
- 
-  dprint(xbee,"2==Start\n");
   /*
-  dprint(xbee, "1,scan");
-  for(i=0; i<36; i++)
-  {
-    //scanData = robot_scan();                            //Robot will scan/store data: turn, ping, turn, ping...
-    pause(100);
-    Printing the SCAN data in the MAP DATA FORMAT
-    //dprint(xbee, "1,scan");
-    dprint(xbee,",%d", degrees[i]);
-    dprint(xbee,",%d", robot_scan()[i]);
-  
-  }
-  dprint(xbee, "\n\n");
-  
-  */
-
-  moveData = move_to_new_location(SETS);        //Robot will turn & move/store data 5 times : turn, move, turn, move, ...
-
-  
-  
-  
-  /**Printing the MOVE data in the MAP DATA FORMAT**/
+  int i;
+  //Printing the MOVE data in the MAP DATA FORMAT
   dprint(xbee, "1,move");
   for(i=0; i<(SETS*2); i++)
   {
@@ -140,10 +212,11 @@ int run_cmd(void)
   }
   dprint(xbee, "\n\n");
    
-  debug_stop(xbee, "debug1===\n");
-   
-  
+  //debug_stop(xbee, "debug1===\n");
+  */
 }
+
+//functions used by the different state functions -------------------
 
 int go_and_track_time(int stopDistance)       //stopDistance = distance between a detected wall and robot when stopped
 {
