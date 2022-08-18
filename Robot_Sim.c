@@ -16,6 +16,8 @@
 #include "fdserial.h"                         //Makes XBee wireless connection work
 
 fdserial *xbee;
+int *moveData;
+//int *scanData;
 
 #define SPEED_STEP 10                         // 10 ticks/sec / 20 ms
 #define SETS       1                          // The amount of move/turn sets that will be executed
@@ -26,8 +28,8 @@ fdserial *xbee;
 int go_and_track_time(int stopDistance);      //Makes the robot move until it arrives near a wall/object and returns run time
 int generate_rand_num(int maxNum);            //Generates a random number between 1 and maxNum
 int robot_turn_random();                      //Makes the robot turn 0,90, 180, or -90 degrees randomly, returns rand value
-int* move_to_new_location(int maxSets);       //Makes the robot move to random location, returns data in turn, ms format
-int* robot_scan();                                  //Makes robot take 360-degree scan at current location. Returns data(turn, ping)
+void move_to_new_location(int maxSets);       //Makes the robot move to random location, returns data in turn, ms format
+void robot_scan();                            //Makes robot take 360-degree scan at current location. Returns data(turn, ping)
 
 
 int stateValue;
@@ -68,7 +70,7 @@ int main()
 
       case WAIT_CMD:
         i = wait_cmd();
-        dprint(xbee, "i:%x\n", i);
+        //dprint(xbee, "i:%x\n", i);
         goto_next(i);
         break;
         
@@ -78,6 +80,16 @@ int main()
         goto_next(WAIT_CMD);
         break;
         
+      case SCAN_CMD:
+        scan_cmd();
+        goto_next(WAIT_CMD);
+        break;
+      
+      case SCAN_MOVE_CMD:
+        scan_move_cmd();
+        goto_next(WAIT_CMD);
+        break;
+      
       case SEND_DATA:
         send_data();
         goto_next(WAIT_CMD);
@@ -88,7 +100,7 @@ int main()
   
 }
 
-//functions that represent the states of the robot(+debugging tool)
+//functions that represent the states of the robot(+debugging tool) --------------
 
 char debug_stop(fdserial *serial, char *str)
 {
@@ -107,27 +119,9 @@ char debug_stop(fdserial *serial, char *str)
   
 }
 
-char ask_user_order(fdserial *serial, char *str) //Does same thing as debugging tool, but prompts user to press enter key.
-{
-  char c;
-  
-  dprint(serial, str);
-  
-  while(1)
-  {
-    c = fdserial_rxChar(serial);
-    if(c == 0xd)
-    {
-      return c;
-    }
-  }      
-}
-
 int initialize(void)
 {
-
   dprint(xbee, "Robot is done booting\n");
-  //dprint(xbee, "Robot is done booting. Would you like to start the process?(Press enter to continue)\n");
 }
 
 
@@ -138,7 +132,7 @@ int wait_cmd(void)
   char const default_val = 0;
   char byte_1 = default_val, byte_2 = default_val, byte_3 = default_val;
   
-  dprint(xbee, "wait_cmd\n");
+  //dprint(xbee, "wait_cmd\n");
   
   while(1)
   {
@@ -148,7 +142,7 @@ int wait_cmd(void)
       if(c == 0x30)
       {
         
-        dprint(xbee, "run command: %x \n", byte_2);
+        //dprint(xbee, "run command: %x \n", byte_2);
         
         switch(byte_2)
         {
@@ -160,6 +154,9 @@ int wait_cmd(void)
             break;
           case 0x34:
             iCmd = SCAN_MOVE_CMD;
+            break;
+          case 0x35:              //I feel like SEND_DATA state is not useful: we are gonna send data right after action anyways
+            iCmd = SEND_DATA;
             break;
         }
         
@@ -192,28 +189,29 @@ int wait_cmd(void)
 
 int move_cmd(void)
 {
-  int *moveData;
 
-  dprint(xbee, "move_cmd\n");
+  //dprint(xbee, "move_cmd\n");
   
-  moveData = move_to_new_location(SETS);        //Robot will turn & move/store data 5 times : turn, move, turn, move, ...
+  move_to_new_location(SETS);        //Robot will turn & move/store data 5 times : turn, move, turn, move, ...
   
+}
+
+int scan_cmd(void)
+{
+  
+  //dprint(xbee, "scan_cmd\n");
+  robot_scan();
+  
+}
+
+int scan_move_cmd(void)
+{
+  scan_and_move(SETS);
 }
 
 int send_data(void)
 {
-  /*
-  int i;
-  //Printing the MOVE data in the MAP DATA FORMAT
-  dprint(xbee, "1,move");
-  for(i=0; i<(SETS*2); i++)
-  {
-    dprint(xbee,",%d", moveData[i]);
-  }
-  dprint(xbee, "\n\n");
-   
-  //debug_stop(xbee, "debug1===\n");
-  */
+   //Ask dad and think of getting rid of this function and SEND_DATA overall.
 }
 
 //functions used by the different state functions -------------------
@@ -278,6 +276,8 @@ int robot_turn_random()
   
   return choice;
 }
+
+/*
 int* move_to_new_location(int maxSets)        //maxSets = the amount of turn/move sets that the robot will perform
 {
   int rangeAndSize = maxSets * 2;
@@ -312,27 +312,153 @@ int* move_to_new_location(int maxSets)        //maxSets = the amount of turn/mov
   return moveDataSet;
 }
 
-/* Code does not work as intended(ping and degrees return weird random numbers)
-
-int* robot_scan()
+int robot_scan()        //maxSets = the amount of turn/move sets that the robot will perform
 {
+  int rangeAndSize = 72;
+  int degrees = 0;
+  //int scanDataSet[rangeAndSize];
   int i;
-  int ping_value;
   
-  int pingDataSet[NUMBER_SCAN_TURNS];
- 
-  for(i = 0; i < NUMBER_SCAN_TURNS; i=i++)
+  for(i=0; i<rangeAndSize; i=i+2)
   {
-    ping_value = ping_cm(7);
-    //pause(100);
-    pingDataSet[i] = ping_value;
-    
+    //scanDataSet[i] = degrees;
+   
+    //scanDataSet[i+1] = 0;
+    degrees = degrees + 10;
     drive_goto(-3,3);
+    pause(100);
+  }
   
-    //pause(100);
+  //return scanDataSet;
+}
+*/
+void move_to_new_location(int maxSets)        //New move function, now incorporated with the data printing
+{
+  int rangeAndSize = maxSets * 2;
+  
+  int moveDataSet[rangeAndSize];
+  int i;
+  int randomTurn;
+  int timeMoved;
+  
+  for(i=0; i<rangeAndSize; i=i+2)
+  {
+    randomTurn = robot_turn_random();
+    
+    if(randomTurn == 1)
+    {
+      moveDataSet[i] = -90;
+    }
+    else if(randomTurn == 2)
+    {
+      moveDataSet[i] = 90;
+    }
+    else
+    {
+      moveDataSet[i] = 180;
+    }
+      
+    timeMoved = go_and_track_time(30);
+    
+    moveDataSet[i+1] = timeMoved;
+  }
+  
+  dprint(xbee, "1,move");
+  for(i=0; i< rangeAndSize; i++)
+  {
+    dprint(xbee,",%d", moveDataSet[i]);
+  }
+  dprint(xbee, "\n\n");
+}
+
+void robot_scan()                         //New scan function, now incorporated with the data printing
+{
+  int scanDataSet[72];
+  int i;
+  int degrees = 0;
+  int counter = 0;
+  for(i=0; i<=72; i=i+2)
+  {
+    
+    scanDataSet[i] = degrees;
+    scanDataSet[i+1] = ping_cm(7);
+    
+    degrees = degrees + 10;
+    drive_goto(-3,3);
+    counter++;
+    dprint(xbee, "%d ", counter);
+    pause(100);
+    
+  }
+  drive_goto(-3,3);
+  drive_goto(-3,3);
+  /*
+  dprint(xbee, "1,scan");
+  for(i=0; i< 72; i++)
+  {
+    dprint(xbee,",%d", scanDataSet[i]);
+  }
+  dprint(xbee, "\n\n");
+  */
+}
+
+void scan_and_move(int maxSets)
+{
+  int rangeAndSize = maxSets * 2;
+  
+  int moveDataSet[rangeAndSize];
+  int scanDataSet[72];
+  int i;
+  int randomTurn;
+  int timeMoved;
+  int degrees = 0;
+  
+  for(i=0; i<72; i=i+2)
+  {
+    
+    scanDataSet[i] = degrees;
+    scanDataSet[i+1] = ping_cm(7);
+    
+    degrees = degrees + 10;
+    drive_goto(-3,3);
+    pause(100);
   }
   drive_goto(-3,3);
   
-  return pingDataSet;
+  for(i=0; i<rangeAndSize; i=i+2)
+  {
+    randomTurn = robot_turn_random();
+    
+    if(randomTurn == 1)
+    {
+      moveDataSet[i] = -90;
+    }
+    else if(randomTurn == 2)
+    {
+      moveDataSet[i] = 90;
+    }
+    else
+    {
+      moveDataSet[i] = 180;
+    }
+      
+    timeMoved = go_and_track_time(30);
+    
+    moveDataSet[i+1] = timeMoved;
+  }
+  
+  dprint(xbee, "1,scan");
+  while(i<72)
+  {  
+    dprint(xbee,",%d", scanDataSet[i]);
+    i++;
+  }
+  dprint(xbee, "\n");
+  
+  dprint(xbee, "1,move");
+  for(i=0; i< rangeAndSize; i++)
+  {
+    dprint(xbee,",%d", moveDataSet[i]);
+  }
+  dprint(xbee, "\n\n");
 }
-*/
