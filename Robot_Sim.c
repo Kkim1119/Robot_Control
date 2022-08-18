@@ -22,7 +22,8 @@ int *moveData;
 #define SPEED_STEP 10                         // 10 ticks/sec / 20 ms
 #define SETS       1                          // The amount of move/turn sets that will be executed
 #define SIMULATION_RUN 5                      //The amount of times that scan/move data will be returned(1 run= 1 scan, 1 move)
-#define NUMBER_SCAN_TURNS 1                   //36 turns = 1 complete scan 
+#define NUMBER_SCAN_TURNS 1                   //36 turns = 1 complete scan
+#define SCAN_MOVE_SET 10 
  
 
 int go_and_track_time(int stopDistance);      //Makes the robot move until it arrives near a wall/object and returns run time
@@ -34,7 +35,7 @@ void robot_scan();                            //Makes robot take 360-degree scan
 
 int stateValue;
 int iState;
-enum state{INIT, WAIT_CMD, MOVE_CMD, SCAN_CMD, SCAN_MOVE_CMD, SEND_DATA};
+enum state{INIT, WAIT_CMD, MOVE_CMD, SCAN_CMD, SCAN_MOVE_CMD};
 
 //functions used by state machine ---------------------------
 
@@ -89,12 +90,10 @@ int main()
         scan_move_cmd();
         goto_next(WAIT_CMD);
         break;
-      
-      case SEND_DATA:
-        send_data();
+        
+      default:
         goto_next(WAIT_CMD);
         break;
-
     }
   }
   
@@ -132,7 +131,7 @@ int wait_cmd(void)
   char const default_val = 0;
   char byte_1 = default_val, byte_2 = default_val, byte_3 = default_val;
   
-  //dprint(xbee, "wait_cmd\n");
+  dprint(xbee, "wait_cmd\n");
   
   while(1)
   {
@@ -155,8 +154,8 @@ int wait_cmd(void)
           case 0x34:
             iCmd = SCAN_MOVE_CMD;
             break;
-          case 0x35:              //I feel like SEND_DATA state is not useful: we are gonna send data right after action anyways
-            iCmd = SEND_DATA;
+          default:
+            iCmd = WAIT_CMD;
             break;
         }
         
@@ -190,7 +189,7 @@ int wait_cmd(void)
 int move_cmd(void)
 {
 
-  //dprint(xbee, "move_cmd\n");
+  dprint(xbee, "move_cmd\n");
   
   move_to_new_location(SETS);        //Robot will turn & move/store data 5 times : turn, move, turn, move, ...
   
@@ -199,20 +198,18 @@ int move_cmd(void)
 int scan_cmd(void)
 {
   
-  //dprint(xbee, "scan_cmd\n");
+  dprint(xbee, "scan_cmd\n");
+  
   robot_scan();
   
 }
 
 int scan_move_cmd(void)
 {
-  scan_and_move(SETS);
+  dprint(xbee, "scan_move_cmd\n");
+  scan_and_move();
 }
 
-int send_data(void)
-{
-   //Ask dad and think of getting rid of this function and SEND_DATA overall.
-}
 
 //functions used by the different state functions -------------------
 
@@ -251,6 +248,7 @@ int generate_rand_num(int maxNum)
   
   return randomNumber;
 }
+
 
 int robot_turn_random()
 {
@@ -371,94 +369,38 @@ void move_to_new_location(int maxSets)        //New move function, now incorpora
   dprint(xbee, "\n\n");
 }
 
+#define SCAN_STEP 38
+
 void robot_scan()                         //New scan function, now incorporated with the data printing
 {
-  int scanDataSet[72];
+  double scanDataDegree[SCAN_STEP];
+  int scanDataPing[SCAN_STEP];
   int i;
-  int degrees = 0;
-  int counter = 0;
-  for(i=0; i<=72; i=i+2)
+
+  for(i=0; i<SCAN_STEP; i++)
   {
     
-    scanDataSet[i] = degrees;
-    scanDataSet[i+1] = ping_cm(7);
+    scanDataDegree[i] = (double)(i) * (360/((double)SCAN_STEP));
+    scanDataPing[i] = ping_cm(7);
     
-    degrees = degrees + 10;
     drive_goto(-3,3);
-    counter++;
-    dprint(xbee, "%d ", counter);
+ 
     pause(100);
     
   }
-  drive_goto(-3,3);
-  drive_goto(-3,3);
-  /*
+  
   dprint(xbee, "1,scan");
-  for(i=0; i< 72; i++)
+  for(i=0; i< SCAN_STEP; i++)
   {
-    dprint(xbee,",%d", scanDataSet[i]);
+    dprint(xbee,",%f", scanDataDegree[i]);
+    dprint(xbee,",%d", scanDataPing[i]);
   }
   dprint(xbee, "\n\n");
-  */
+
 }
 
-void scan_and_move(int maxSets)
+void scan_and_move(void)
 {
-  int rangeAndSize = maxSets * 2;
-  
-  int moveDataSet[rangeAndSize];
-  int scanDataSet[72];
-  int i;
-  int randomTurn;
-  int timeMoved;
-  int degrees = 0;
-  
-  for(i=0; i<72; i=i+2)
-  {
-    
-    scanDataSet[i] = degrees;
-    scanDataSet[i+1] = ping_cm(7);
-    
-    degrees = degrees + 10;
-    drive_goto(-3,3);
-    pause(100);
-  }
-  drive_goto(-3,3);
-  
-  for(i=0; i<rangeAndSize; i=i+2)
-  {
-    randomTurn = robot_turn_random();
-    
-    if(randomTurn == 1)
-    {
-      moveDataSet[i] = -90;
-    }
-    else if(randomTurn == 2)
-    {
-      moveDataSet[i] = 90;
-    }
-    else
-    {
-      moveDataSet[i] = 180;
-    }
-      
-    timeMoved = go_and_track_time(30);
-    
-    moveDataSet[i+1] = timeMoved;
-  }
-  
-  dprint(xbee, "1,scan");
-  while(i<72)
-  {  
-    dprint(xbee,",%d", scanDataSet[i]);
-    i++;
-  }
-  dprint(xbee, "\n");
-  
-  dprint(xbee, "1,move");
-  for(i=0; i< rangeAndSize; i++)
-  {
-    dprint(xbee,",%d", moveDataSet[i]);
-  }
-  dprint(xbee, "\n\n");
+  robot_scan();
+  move_to_new_location(SETS);
 }
