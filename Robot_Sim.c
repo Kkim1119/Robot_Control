@@ -23,7 +23,7 @@ int *moveData;
 #define SIMULATION_RUN 5                      //The amount of times that scan/move data will be returned(1 run= 1 scan, 1 move)     
 #define NUMBER_SCAN_TURNS 1                   //36 turns = 1 complete scan
 #define SCAN_MOVE_SET 10 
-#define BUFFER_SIZE 200
+#define BUFFER_SIZE 500
 #define BUFFER_LOW 0
 #define BUFFER_HIGH 1
 
@@ -148,37 +148,41 @@ int communication(void)
   unsigned char buffer_high[BUFFER_SIZE];
   int timer = 0;
   int load_status = LOAD_READY;
+  int i;
   
   dprint(xbee, "communication\n");
+
+  buffer_type = BUFFER_LOW;
+  buffer_pointer = 0;  
   
   while(1)
   {
-    buffer_type = BUFFER_LOW;
-    buffer_pointer = 0;
     data = fdserial_rxCharTime(xbee, COUNTER);
-    dprint(xbee, "2===%x\n", data);
+    //dprint(xbee, "1===%x\n", data);
     
     if(data == 0x8000)
     {
+      buffer_type = BUFFER_LOW;
       if(buffer_pointer != 0)
       {
+        
         load_data(buffer_low, buffer_high, data_storage_low, data_storage_high);
         load_status = LOAD_COMPLETE;
-        
-        dprint(xbee, "load status: %s", data_storage_low);
-        
+        for(i=0; i<20; i++)
+        {
+          dprint(xbee, "data_storage_low: %x\r\n", data_storage_low[i]);
+        }        
         buffer_pointer = 0;
-        dprint(xbee, "data received, time out");
+        //dprint(xbee, "data received, time out\r\n");
         
       }
       else
       {
-        dprint(xbee, "no data received, time out");
+        //dprint(xbee, "no data received, time out\r\n");
       }  
     }
     else if(data != -1)             //Data Received
     {
-      dprint(xbee, "3===\n");
       if(buffer_type == BUFFER_LOW)
       {
         buffer_low[buffer_pointer] = data;
@@ -216,8 +220,8 @@ int load_data(unsigned char *src_low, unsigned char *src_high, unsigned char *de
   
   for(i=0; i< BUFFER_SIZE; i++)
   {
-    *(src_low + i)  = *(dest_low + i);
-    *(src_high + i) = *(dest_high + i);
+    *(dest_low + i) = *(src_low + i);
+    *(dest_high + i) = *(src_high + i);
     
   }
 }
