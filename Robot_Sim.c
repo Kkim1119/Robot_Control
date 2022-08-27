@@ -8,12 +8,11 @@
 //Goal: Make a function that allows the robot to ramp up and down while keeping track of the time it took to move.
 
 
-#include "simpletools.h"                      // Include simple tools
-#include "mstimer.h"                          //Include timer library
-#include "abdrive.h"                          //Include drive library(goto, ramp, etc.)
-#include "ping.h"                             //Include ping library
-#include "stdlib.h"                           //Include math library
-#include "fdserial.h"                         //Makes XBee wireless connection work
+#include <simpletools.h>                      // Include simple tools
+#include <mstimer.h>                         //Include timer library
+#include <abdrive.h>                          //Include drive library(goto, ramp, etc.)
+#include <ping.h>                             //Include ping library
+#include <stdlib.h>                           //Include math library
 
 fdserial *xbee;
 int *moveData;
@@ -21,10 +20,12 @@ int *moveData;
 
 #define SPEED_STEP 10                         // 10 ticks/sec / 20 ms
 #define SETS       1                          // The amount of move/turn sets that will be executed
-#define SIMULATION_RUN 5                      //The amount of times that scan/move data will be returned(1 run= 1 scan, 1 move)
+#define SIMULATION_RUN 5                      //The amount of times that scan/move data will be returned(1 run= 1 scan, 1 move)     
 #define NUMBER_SCAN_TURNS 1                   //36 turns = 1 complete scan
 #define SCAN_MOVE_SET 10 
- 
+#define BUFFER_SIZE 200
+#define BUFFER_LOW 0
+#define BUFFER_HIGH 1
 
 int go_and_track_time(int stopDistance);      //Makes the robot move until it arrives near a wall/object and returns run time
 int generate_rand_num(int maxNum);            //Generates a random number between 1 and maxNum
@@ -35,8 +36,10 @@ void robot_scan();                            //Makes robot take 360-degree scan
 
 int stateValue;
 int iState;
-enum state{INIT, WAIT_CMD, MOVE_CMD, SCAN_CMD, SCAN_MOVE_CMD};
+enum state{INIT, IDLE, WAIT_CMD, MOVE_CMD, SCAN_CMD, SCAN_MOVE_CMD, GOTO_CMD};
 
+unsigned char data_storage_low[BUFFER_SIZE] = {NULL};
+unsigned char data_storage_high[BUFFER_SIZE] = {NULL};
 //functions used by state machine ---------------------------
 
 int goto_next(int next_state)
@@ -66,7 +69,11 @@ int main()
     {
       case INIT:
         initialize();
-        goto_next(WAIT_CMD);
+        goto_next(IDLE);
+        break;
+        
+      case IDLE:
+        communication();
         break;
 
       case WAIT_CMD:
@@ -78,21 +85,26 @@ int main()
       case MOVE_CMD:
         move_cmd(); 
         //goto_next(SEND_DATA);
-        goto_next(WAIT_CMD);
+        goto_next(IDLE);
         break;
         
       case SCAN_CMD:
         scan_cmd();
-        goto_next(WAIT_CMD);
+        goto_next(IDLE);
         break;
       
       case SCAN_MOVE_CMD:
         scan_move_cmd();
-        goto_next(WAIT_CMD);
+        goto_next(IDLE);
+        break;
+        
+      case GOTO_CMD:
+        goto_cmd();
+        goto_next(IDLE);
         break;
         
       default:
-        goto_next(WAIT_CMD);
+        goto_next(IDLE);
         break;
     }
   }
@@ -123,6 +135,92 @@ int initialize(void)
   dprint(xbee, "Robot is done booting\n");
 }
 
+#define COUNTER 10000
+#define LOAD_READY 0
+#define LOAD_COMPLETE 1
+int communication(void)
+{
+  int data;
+  int buffer_pointer;
+  int time_out;
+  int buffer_type;
+  unsigned char buffer_low[BUFFER_SIZE];
+  unsigned char buffer_high[BUFFER_SIZE];
+  int timer = 0;
+  int load_status = LOAD_READY;
+  
+  dprint(xbee, "communication\n");
+  
+  while(1)
+  {
+    buffer_type = BUFFER_LOW;
+    buffer_pointer = 0;
+    data = fdserial_rxCharTime(xbee, COUNTER);
+    dprint(xbee, "2===%x\n", data);
+    
+    if(data == 0x8000)
+    {
+      if(buffer_pointer != 0)
+      {
+        load_data(buffer_low, buffer_high, data_storage_low, data_storage_high);
+        load_status = LOAD_COMPLETE;
+        
+        dprint(xbee, "load status: %s", data_storage_low);
+        
+        buffer_pointer = 0;
+        dprint(xbee, "data received, time out");
+        
+      }
+      else
+      {
+        dprint(xbee, "no data received, time out");
+      }  
+    }
+    else if(data != -1)             //Data Received
+    {
+      dprint(xbee, "3===\n");
+      if(buffer_type == BUFFER_LOW)
+      {
+        buffer_low[buffer_pointer] = data;
+        buffer_pointer++;
+        if(buffer_pointer > BUFFER_SIZE - 1)
+        {
+          buffer_type = BUFFER_HIGH;
+          buffer_pointer = 0;
+        }
+      }
+      else
+      {
+        buffer_high[buffer_pointer] = data;
+        buffer_pointer++;
+        if(buffer_pointer > BUFFER_SIZE - 1)
+        {
+          load_data(buffer_low, buffer_high, data_storage_low, data_storage_high);
+          load_status = LOAD_COMPLETE;
+          buffer_pointer = 0;
+        }
+      }
+      
+    }
+    else          //Data not given
+    {
+      //PLaceholder
+    }
+  } 
+}
+
+
+int load_data(unsigned char *src_low, unsigned char *src_high, unsigned char *dest_low, unsigned char *dest_high)
+{
+  int i;
+  
+  for(i=0; i< BUFFER_SIZE; i++)
+  {
+    *(src_low + i)  = *(dest_low + i);
+    *(src_high + i) = *(dest_high + i);
+    
+  }
+}
 
 int wait_cmd(void)
 {
@@ -141,7 +239,7 @@ int wait_cmd(void)
       if(c == 0x30)
       {
         
-        //dprint(xbee, "run command: %x \n", byte_2);
+        dprint(xbee, "run command: %x \n", byte_2);
         
         switch(byte_2)
         {
@@ -153,6 +251,9 @@ int wait_cmd(void)
             break;
           case 0x34:
             iCmd = SCAN_MOVE_CMD;
+            break;
+          case 0x35:
+            iCmd = GOTO_CMD;
             break;
           default:
             iCmd = WAIT_CMD;
@@ -208,6 +309,14 @@ int scan_move_cmd(void)
 {
   dprint(xbee, "scan_move_cmd\n");
   scan_and_move();
+}
+
+int goto_cmd(void)
+{
+
+  dprint(xbee, "goto_cmd\n");
+  
+
 }
 
 
