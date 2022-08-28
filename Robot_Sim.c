@@ -130,14 +130,31 @@ char debug_stop(fdserial *serial, char *str)
   
 }
 
+#define CONVERT_TABLE_SIZE 0x67
+unsigned char const convert_table[CONVERT_TABLE_SIZE]= {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \
+                                                       0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \
+                                                       0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \
+                                                       0,1,2,3,4,5,6,7,8,9,0,0,0,0,0,0, \
+                                                       0,0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,0,0,0,0,0,0,0,0,0, \
+                                                       0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \
+                                                       0,0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F};   
+
 int initialize(void)
 {
   dprint(xbee, "Robot is done booting\n");
 }
 
 #define COUNTER 10000
-#define LOAD_READY 0
-#define LOAD_COMPLETE 1
+#define LOAD_NOT_READY 0
+#define LOAD_READY 1
+#define ROBOT_DIR_NOT_READY 0
+#define ROBOT_DIR_READY 1
+
+
+unsigned char robot_dir_status = ROBOT_DIR_NOT_READY;
+
+enum DATA_TYPE{ROBOT_DIR = 5};
+
 int communication(void)
 {
   int data;
@@ -147,11 +164,12 @@ int communication(void)
   unsigned char buffer_low[BUFFER_SIZE];
   unsigned char buffer_high[BUFFER_SIZE];
   int timer = 0;
-  int load_status = LOAD_READY;
+  int load_status = LOAD_NOT_READY;
   int i;
   
-  dprint(xbee, "communication\n");
 
+  dprint(xbee, "communication\n");
+  
   buffer_type = BUFFER_LOW;
   buffer_pointer = 0;  
   
@@ -167,19 +185,31 @@ int communication(void)
       {
         
         load_data(buffer_low, buffer_high, data_storage_low, data_storage_high);
-        load_status = LOAD_COMPLETE;
-        for(i=0; i<20; i++)
+        load_status = LOAD_READY;
+        
+        for(i=0; i<22; i++)
         {
-          dprint(xbee, "data_storage_low: %x\r\n", data_storage_low[i]);
-        }        
+          dprint(xbee, "%x", data_storage_low[i]);
+          
+        }     
+        dprint(xbee, "\r\n");
+        for(i=0; i<22; i++)
+        {
+          dprint(xbee, "%x", convert_table[data_storage_low[i]]);
+          
+        } 
+        
+        
         buffer_pointer = 0;
         //dprint(xbee, "data received, time out\r\n");
+        break;
         
       }
       else
       {
         //dprint(xbee, "no data received, time out\r\n");
-      }  
+      } 
+       
     }
     else if(data != -1)             //Data Received
     {
@@ -200,8 +230,9 @@ int communication(void)
         if(buffer_pointer > BUFFER_SIZE - 1)
         {
           load_data(buffer_low, buffer_high, data_storage_low, data_storage_high);
-          load_status = LOAD_COMPLETE;
+          load_status = LOAD_READY;
           buffer_pointer = 0;
+          break;
         }
       }
       
@@ -209,8 +240,95 @@ int communication(void)
     else          //Data not given
     {
       //PLaceholder
+      
     }
   } 
+  
+  unsigned char revision_byte;
+  unsigned char dataType_byte;
+  unsigned char packetLength_byte;
+  unsigned int degree_byte2;
+  unsigned int x_coord_byte2;
+  unsigned int y_coord_byte2;
+  unsigned char checksum_byte;
+  unsigned char checksum_compare;
+  
+  revision_byte = convert_table[data_storage_low[0]];
+  revision_byte = revision_byte << 4; // number of shift for bit
+  revision_byte = revision_byte | (convert_table[data_storage_low[1]] & 0x0F);
+   
+  dprint(xbee, "revision_byte2: %x\n", revision_byte);
+  
+  dataType_byte = convert_table[data_storage_low[2]];
+  dataType_byte = dataType_byte << 4;
+  dataType_byte = dataType_byte | (convert_table[data_storage_low[3]] & 0x0F);
+  
+  dprint(xbee, "dataType_byte2: %x\n", dataType_byte);
+  
+  packetLength_byte = convert_table[data_storage_low[4]];
+  packetLength_byte = packetLength_byte << 4;
+  packetLength_byte = packetLength_byte | (convert_table[data_storage_low[5]] & 0x0F);
+  
+  dprint(xbee, "packetLength_byte2:%x\n", packetLength_byte);
+  
+  switch(dataType_byte)
+  {
+    case ROBOT_DIR:
+      degree_byte2 = convert_table[data_storage_low[6]];
+      degree_byte2 = degree_byte2 << 4;
+      degree_byte2 = degree_byte2 | (convert_table[data_storage_low[7]] & 0x0F);
+      degree_byte2 = degree_byte2 << 4;
+      degree_byte2 = degree_byte2 | (convert_table[data_storage_low[8]] & 0x0F);
+      degree_byte2 = degree_byte2 << 4;
+      degree_byte2 = degree_byte2 | (convert_table[data_storage_low[9]] & 0x0F);
+      dprint(xbee, "degree_byte2:%x\n", degree_byte2);
+      
+      x_coord_byte2 = convert_table[data_storage_low[10]];
+      x_coord_byte2 = x_coord_byte2 << 4;
+      x_coord_byte2 = x_coord_byte2 | (convert_table[data_storage_low[11]] & 0x0F);
+      x_coord_byte2 = x_coord_byte2 << 4;
+      x_coord_byte2 = x_coord_byte2 | (convert_table[data_storage_low[12]] & 0x0F);
+      x_coord_byte2 = x_coord_byte2 << 4;
+      x_coord_byte2 = x_coord_byte2 | (convert_table[data_storage_low[13]] & 0x0F);
+      dprint(xbee, "x_coord_byte2:%x\n", x_coord_byte2);
+      
+      y_coord_byte2 = convert_table[data_storage_low[14]];
+      y_coord_byte2 = y_coord_byte2 << 4;
+      y_coord_byte2 = y_coord_byte2 | (convert_table[data_storage_low[15]] & 0x0F);
+      y_coord_byte2 = y_coord_byte2 << 4;
+      y_coord_byte2 = y_coord_byte2 | (convert_table[data_storage_low[16]] & 0x0F);
+      y_coord_byte2 = y_coord_byte2 << 4;
+      y_coord_byte2 = y_coord_byte2 | (convert_table[data_storage_low[17]] & 0x0F);
+      dprint(xbee, "y_coord_byte2:%x\n", y_coord_byte2);
+      
+      checksum_byte = convert_table[data_storage_low[18]];
+      checksum_byte = checksum_byte << 4;
+      checksum_byte = checksum_byte | (convert_table[data_storage_low[19]] & 0x0F);
+      dprint(xbee, "checksum_byte2:%x\n", checksum_byte);
+      
+      checksum_compare = revision_byte+dataType_byte+packetLength_byte+degree_byte2+x_coord_byte2+y_coord_byte2+checksum_byte;
+      
+      
+      if(checksum_compare == 0)
+      {
+        dprint(xbee, "correct data received\n");
+        robot_dir_status = ROBOT_DIR_READY;
+      }
+      else
+      {
+        dprint(xbee, "incorrect data\n");
+        robot_dir_status = ROBOT_DIR_NOT_READY;
+      }
+      
+      break;
+    
+    default:
+      break;
+  }
+  
+  
+  buffer_pointer = 0;
+  dprint(xbee, " || ");
 }
 
 
