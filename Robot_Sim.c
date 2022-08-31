@@ -168,7 +168,8 @@ int communication(void)
   int i;
   
 
-  dprint(xbee, "communication\n");
+  dprint(xbee, "01060A01EE\n");
+  //dprint(xbee, "01060A00EF\n");
   
   buffer_type = BUFFER_LOW;
   buffer_pointer = 0;  
@@ -186,7 +187,7 @@ int communication(void)
         
         load_data(buffer_low, buffer_high, data_storage_low, data_storage_high);
         load_status = LOAD_READY;
-        
+        /*
         for(i=0; i<22; i++)
         {
           dprint(xbee, "%x", data_storage_low[i]);
@@ -198,7 +199,7 @@ int communication(void)
           dprint(xbee, "%x", convert_table[data_storage_low[i]]);
           
         } 
-        
+        */
         
         buffer_pointer = 0;
         //dprint(xbee, "data received, time out\r\n");
