@@ -26,6 +26,12 @@ int *moveData;
 #define BUFFER_SIZE 500
 #define BUFFER_LOW 0
 #define BUFFER_HIGH 1
+#define COUNTER 10000
+#define LOAD_NOT_READY 0
+#define LOAD_READY 1
+#define ROBOT_DIR_NOT_READY 0
+#define ROBOT_DIR_READY 1
+
 
 int go_and_track_time(int stopDistance);      //Makes the robot move until it arrives near a wall/object and returns run time
 int generate_rand_num(int maxNum);            //Generates a random number between 1 and maxNum
@@ -34,12 +40,16 @@ void move_to_new_location(int maxSets);       //Makes the robot move to random l
 void robot_scan();                            //Makes robot take 360-degree scan at current location. Returns data(turn, ping)
 
 
+
 int stateValue;
 int iState;
 enum state{INIT, IDLE, WAIT_CMD, MOVE_CMD, SCAN_CMD, SCAN_MOVE_CMD, GOTO_CMD};
+enum DATA_TYPE{ROBOT_DIR = 5};
+
 
 unsigned char data_storage_low[BUFFER_SIZE] = {NULL};
 unsigned char data_storage_high[BUFFER_SIZE] = {NULL};
+unsigned char robot_dir_status = ROBOT_DIR_NOT_READY;
 //functions used by state machine ---------------------------
 
 int goto_next(int next_state)
@@ -73,7 +83,17 @@ int main()
         break;
         
       case IDLE:
-        communication();
+        i = communication();
+        switch(i)
+        {
+           case ROBOT_DIR:
+            goto_next(SCAN_CMD);
+            break;
+            
+           default:
+            goto_next(IDLE);
+            break;
+        }
         break;
 
       case WAIT_CMD:
@@ -142,18 +162,12 @@ unsigned char const convert_table[CONVERT_TABLE_SIZE]= {0,0,0,0,0,0,0,0,0,0,0,0,
 int initialize(void)
 {
   dprint(xbee, "Robot is done booting\n");
+  
+  dprint(xbee, "01060A01EE\n");
+  //dprint(xbee, "01060A00EF\n");
+  
 }
 
-#define COUNTER 10000
-#define LOAD_NOT_READY 0
-#define LOAD_READY 1
-#define ROBOT_DIR_NOT_READY 0
-#define ROBOT_DIR_READY 1
-
-
-unsigned char robot_dir_status = ROBOT_DIR_NOT_READY;
-
-enum DATA_TYPE{ROBOT_DIR = 5};
 
 int communication(void)
 {
@@ -167,12 +181,20 @@ int communication(void)
   int load_status = LOAD_NOT_READY;
   int i;
   
+  unsigned char revision_byte;
+  unsigned char dataType_byte;
+  unsigned char packetLength_byte;
+  unsigned int degree_byte2;
+  unsigned int x_coord_byte2;
+  unsigned int y_coord_byte2;
+  unsigned char checksum_byte;
+  unsigned char checksum_compare;
+  
 
-  dprint(xbee, "01060A01EE\n");
-  //dprint(xbee, "01060A00EF\n");
   
   buffer_type = BUFFER_LOW;
   buffer_pointer = 0;  
+  
   
   while(1)
   {
@@ -245,15 +267,6 @@ int communication(void)
     }
   } 
   
-  unsigned char revision_byte;
-  unsigned char dataType_byte;
-  unsigned char packetLength_byte;
-  unsigned int degree_byte2;
-  unsigned int x_coord_byte2;
-  unsigned int y_coord_byte2;
-  unsigned char checksum_byte;
-  unsigned char checksum_compare;
-  
   revision_byte = convert_table[data_storage_low[0]];
   revision_byte = revision_byte << 4; // number of shift for bit
   revision_byte = revision_byte | (convert_table[data_storage_low[1]] & 0x0F);
@@ -312,14 +325,19 @@ int communication(void)
       
       if(checksum_compare == 0)
       {
+        
         dprint(xbee, "correct data received\n");
         robot_dir_status = ROBOT_DIR_READY;
+        return dataType_byte;
+        
       }
       else
       {
         dprint(xbee, "incorrect data\n");
         robot_dir_status = ROBOT_DIR_NOT_READY;
       }
+      
+      
       
       break;
     
@@ -329,7 +347,7 @@ int communication(void)
   
   
   buffer_pointer = 0;
-  dprint(xbee, " || ");
+  //dprint(xbee, " || ");
 }
 
 
@@ -601,19 +619,18 @@ void move_to_new_location(int maxSets)        //New move function, now incorpora
   dprint(xbee, "\n\n");
 }
 
-#define SCAN_STEP 38
+#define SCAN_STEP 36
 
 void robot_scan()                         //New scan function, now incorporated with the data printing
 {
-  double scanDataDegree[SCAN_STEP];
+  int step;
   int scanDataPing[SCAN_STEP];
   int i;
 
-  for(i=0; i<SCAN_STEP; i++)
+  for(step=0; step<SCAN_STEP; step++)
   {
     
-    scanDataDegree[i] = (double)(i) * (360/((double)SCAN_STEP));
-    scanDataPing[i] = ping_cm(7);
+    scanDataPing[step] = ping_cm(7);
     
     drive_goto(-3,3);
  
@@ -621,13 +638,12 @@ void robot_scan()                         //New scan function, now incorporated 
     
   }
   
-  dprint(xbee, "1,scan");
+  dprint(xbee, "1,scan_data");
   for(i=0; i< SCAN_STEP; i++)
   {
-    dprint(xbee,",%f", scanDataDegree[i]);
+    dprint(xbee,",%d", i);
     dprint(xbee,",%d", scanDataPing[i]);
   }
-  dprint(xbee, "\n\n");
 
 }
 
