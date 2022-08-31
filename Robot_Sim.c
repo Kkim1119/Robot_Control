@@ -43,9 +43,11 @@ void robot_scan();                            //Makes robot take 360-degree scan
 
 int stateValue;
 int iState;
-enum state{INIT, IDLE, WAIT_CMD, MOVE_CMD, SCAN_CMD, SCAN_MOVE_CMD, GOTO_CMD};
-enum DATA_TYPE{ROBOT_DIR = 5};
+enum state{INIT, START, IDLE, WAIT_CMD, MOVE_CMD, SCAN_CMD, SCAN_MOVE_CMD, GOTO_CMD};
 
+#define START_MOVE 4
+#define ROBOT_DIR 5
+#define MOVE_DATA_RECEIVED 7
 
 unsigned char data_storage_low[BUFFER_SIZE] = {NULL};
 unsigned char data_storage_high[BUFFER_SIZE] = {NULL};
@@ -79,15 +81,29 @@ int main()
     {
       case INIT:
         initialize();
+        goto_next(START);
+        break;
+        
+      case START:
+        start_moving();
         goto_next(IDLE);
         break;
+        
         
       case IDLE:
         i = communication();
         switch(i)
         {
+           case MOVE_DATA_RECEIVED:
+            goto_next(START);
+            break;
+            
            case ROBOT_DIR:
             goto_next(SCAN_CMD);
+            break;
+            
+           case START_MOVE:
+            goto_next(MOVE_CMD);
             break;
             
            default:
@@ -163,9 +179,11 @@ int initialize(void)
 {
   dprint(xbee, "Robot is done booting\n");
   
+}
+
+int start_moving(void)
+{
   dprint(xbee, "01060A01EE\n");
-  //dprint(xbee, "01060A00EF\n");
-  
 }
 
 
@@ -267,6 +285,15 @@ int communication(void)
     }
   } 
   
+  
+  revision_byte = 0;
+  dataType_byte = 0;
+  packetLength_byte = 0;
+  degree_byte2 = 0;
+  x_coord_byte2 = 0;
+  y_coord_byte2 = 0;
+  checksum_byte = 0;
+  
   revision_byte = convert_table[data_storage_low[0]];
   revision_byte = revision_byte << 4; // number of shift for bit
   revision_byte = revision_byte | (convert_table[data_storage_low[1]] & 0x0F);
@@ -318,7 +345,7 @@ int communication(void)
       checksum_byte = convert_table[data_storage_low[18]];
       checksum_byte = checksum_byte << 4;
       checksum_byte = checksum_byte | (convert_table[data_storage_low[19]] & 0x0F);
-      dprint(xbee, "checksum_byte2:%x\n", checksum_byte);
+      dprint(xbee, "ROBOT_DIR_checksum_byte2:%x\n", checksum_byte);
       
       checksum_compare = revision_byte+dataType_byte+packetLength_byte+degree_byte2+x_coord_byte2+y_coord_byte2+checksum_byte;
       
@@ -326,19 +353,60 @@ int communication(void)
       if(checksum_compare == 0)
       {
         
-        dprint(xbee, "correct data received\n");
+        dprint(xbee, "ROBOT_DIR_correct data received\n");
         robot_dir_status = ROBOT_DIR_READY;
         return dataType_byte;
         
       }
       else
       {
-        dprint(xbee, "incorrect data\n");
+        dprint(xbee, "ROBOT_DIR_incorrect data\n");
         robot_dir_status = ROBOT_DIR_NOT_READY;
       }
+      break;
+    
+    case START_MOVE:
+      checksum_byte = convert_table[data_storage_low[6]];
+      checksum_byte = checksum_byte << 4;
+      checksum_byte = checksum_byte | (convert_table[data_storage_low[7]] & 0x0F);
+      dprint(xbee, "START_MOVE_checksum_byte2:%x\n", checksum_byte);
+      
+      checksum_compare = revision_byte+dataType_byte+packetLength_byte+checksum_byte;
       
       
+      if(checksum_compare == 0)
+      {
+        
+        dprint(xbee, "START_MOVE_correct data received\n");
+        return dataType_byte;
+        
+      }
+      else
+      {
+        dprint(xbee, "START_MOVE_incorrect data\n");
+      }
+      break;
+    
+    case MOVE_DATA_RECEIVED:
+      checksum_byte = convert_table[data_storage_low[6]];
+      checksum_byte = checksum_byte << 4;
+      checksum_byte = checksum_byte | (convert_table[data_storage_low[7]] & 0x0F);
+      dprint(xbee, "MOVE_DATA_RECEIVED_checksum_byte2:%x\n", checksum_byte);
       
+      checksum_compare = revision_byte+dataType_byte+packetLength_byte+checksum_byte;
+      
+      
+      if(checksum_compare == 0)
+      {
+        
+        dprint(xbee, "MOVE_DATA_RECEIVED_correct data received\n");
+        return dataType_byte;
+        
+      }
+      else
+      {
+        dprint(xbee, "MOVE_DATA_RECEIVED_incorrect data\n");
+      }
       break;
     
     default:
@@ -434,6 +502,8 @@ int move_cmd(void)
   dprint(xbee, "move_cmd\n");
   
   move_to_new_location(SETS);        //Robot will turn & move/store data 5 times : turn, move, turn, move, ...
+  
+  pause(100);
   
 }
 
@@ -588,6 +658,8 @@ void move_to_new_location(int maxSets)        //New move function, now incorpora
   int i;
   int randomTurn;
   int timeMoved;
+  unsigned char checksum;
+  unsigned char data_sum;
   
   for(i=0; i<rangeAndSize; i=i+2)
   {
@@ -610,22 +682,28 @@ void move_to_new_location(int maxSets)        //New move function, now incorpora
     
     moveDataSet[i+1] = timeMoved;
   }
+  checksum = 0;
+  data_sum = 0;
   
-  dprint(xbee, "1,move");
+  dprint(xbee, "1,move_data");
   for(i=0; i< rangeAndSize; i++)
   {
     dprint(xbee,",%d", moveDataSet[i]);
+    data_sum += moveDataSet[i];
   }
-  dprint(xbee, "\n\n");
+  checksum = 0x100 - data_sum;
+  dprint(xbee, ",%d", checksum);
+
 }
 
-#define SCAN_STEP 36
+#define SCAN_STEP 36 
 
 void robot_scan()                         //New scan function, now incorporated with the data printing
 {
   int step;
   int scanDataPing[SCAN_STEP];
-  int i;
+  unsigned char checksum;
+  unsigned char data_sum;
 
   for(step=0; step<SCAN_STEP; step++)
   {
@@ -637,14 +715,19 @@ void robot_scan()                         //New scan function, now incorporated 
     pause(100);
     
   }
-  
+  checksum = 0;
+  data_sum = 0;
   dprint(xbee, "1,scan_data");
-  for(i=0; i< SCAN_STEP; i++)
+  for(step=0; step< SCAN_STEP; step++)
   {
-    dprint(xbee,",%d", i);
-    dprint(xbee,",%d", scanDataPing[i]);
+    dprint(xbee,",%d", step);
+    dprint(xbee,",%d", scanDataPing[step]);
+    data_sum += step;
+    data_sum += scanDataPing[step];
   }
 
+  checksum = 0x100 - data_sum;
+  dprint(xbee, ",%d", checksum);
 }
 
 void scan_and_move(void)
